@@ -48,4 +48,8 @@ Built with Snowflake and Streamlit in Snowflake.
 
 Outputs:
 <img width="1771" height="853" alt="image" src="https://github.com/user-attachments/assets/31a9931d-2eb3-4250-aba7-5be27717a79f" />
+<img width="1836" height="507" alt="image" src="https://github.com/user-attachments/assets/ca34a4e2-4752-405e-8227-3e963b98893c" />
+<img width="1753" height="772" alt="image" src="https://github.com/user-attachments/assets/9a250358-e7fb-40b3-bb3f-bed2e21c5181" />
+
+
 
