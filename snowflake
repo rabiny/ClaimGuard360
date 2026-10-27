@@ -1,0 +1,265 @@
+use database synthetic_healthcare_data_clinical_and_claims;
+
+show TABLES in database synthetic_healthcare_data_clinical_and_claims;
+
+create or replace database claimguardai;
+
+use database claimguard_ai_360;
+
+create or replace schema raw;
+create or replace schema curated;
+create or replace schema features;
+create or replace schema analytics;
+create or replace schema ai;
+create or replace schema monitoring;
+
+show schemas in database claimguard_ai_360;
+
+desc table synthetic_healthcare_data_clinical_and_claims.silver.claims_tx;
+
+create or replace table raw.claims as
+select
+    CLAIM_ID,
+    PATIENT_ID,
+    PROVIDER_ID,
+    PRIMARY_PATIENT_INSURANCE_ID,
+    SECONDARY_PATIENT_INSURANCE_ID,
+    ENCOUNTER_ID,
+    SERVICEDATE,
+    CURRENTILLNESSDATE,
+    DIAGNOSIS1,
+    DIAGNOSIS2,
+    DIAGNOSIS3,
+    STATUS1 AS PRIMARY_INSURANCE_STATUS,
+    STATUS2 AS SECONDARY_INSURANCE_STATUS,
+    STATUSP AS PATIENT_STATUS,
+    OUTSTANDING1 AS PRIMARY_INSURANCE_OUTSTANDING,
+    OUTSTANDING2 AS SECONDARY_INSURANCE_OUTSTANDING,
+    OUTSTANDINGP AS PATIENT_OUTSTANDING,
+    HEALTHCARECLAIMTYPEID1 AS PRIMARY_CLAIM_TYPE_ID,
+    HEALTHCARECLAIMTYPEID2 AS SECONDARY_CLAIM_TYPE_ID,
+    SYNTHEA_CITY
+from synthetic_healthcare_data_clinical_and_claims.silver.claims
+where claim_id is not null and patient_id is not null and provider_id is not null
+order by servicedate desc
+limit 5000;
+
+select count(*)
+from raw.claims;
+
+select
+    min(servicedate) as earliest_service_date,
+    max(servicedate) as latest_service_date,
+    count(distinct patient_id) as unique_patients,
+    count(distinct provider_id) as unique_providers,
+    count(distinct synthea_city) as unique_cities
+from raw.claims;
+
+create or replace table raw.claim_transactions as
+select 
+    tx.CLAIMS_TX_ID,
+    tx.CLAIM_ID,
+    tx.CHARGEID,
+    tx.PATIENT_ID,
+    tx.TYPE AS TRANSACTION_TYPE,
+    tx.METHOD AS PAYMENT_METHOD,
+    tx.AMOUNT,
+    tx.UNITAMOUNT AS UNIT_AMOUNT,
+    tx.UNITS,
+    tx.PAYMENTS,
+    tx.ADJUSTMENTS,
+    tx.TRANSFERS,
+    tx.OUTSTANDING,
+    tx.FROMDATE AS SERVICE_FROM_DATE,
+    tx.TODATE AS SERVICE_TO_DATE,
+    tx.PLACE_OF_SERVICE_ID,
+    tx.PROCEDURECODE AS PROCEDURE_CODE,
+    tx.DIAGNOSISREF1 AS DIAGNOSIS_REFERENCE_1,
+    tx.DIAGNOSISREF2 AS DIAGNOSIS_REFERENCE_2,
+    tx.ENCOUNTER_ID,
+    tx.PROVIDER_ID,
+    tx.NOTES,
+    tx.LINENOTE,
+    tx.SYNTHEA_CITY
+from synthetic_healthcare_data_clinical_and_claims.silver.claims_tx tx
+inner join raw.claims c on tx.claim_id=c.claim_id;
+        
+select 
+    count(*) as total_transactions,
+    count(distinct claim_id) as claim_with_transactions,
+    count(distinct transaction_type) as total_transactions_type
+from raw.claim_transactions;
+
+select
+    transaction_type,
+    count_if(outstanding is not null) as non_null_values,
+    sum(coalesce(outstanding,0)) as total_outstanding
+from raw.claim_transactions
+group by 1
+order by 1;
+
+create or replace table curated.claim_financial_summary(
+    CLAIM_ID int,
+    PATIENT_ID int,
+    PROVIDER_ID int,
+    PRIMARY_INSURANCE_ID int,
+    ENCOUNTER_ID int,
+    SERVICE_DATE timestamp,
+    PRIMARY_DIAGNOSIS string,
+    CITY string,
+    TOTAL_BILLED_AMOUNT  number(10,2),
+    TOTAL_PAID_AMOUNT number(10,2),
+    TOTAL_ADJUSTMENT_AMOUNT number(10,2),
+    PROCEDURE_COUNT int,
+    TOTAL_SERVICE_UNITS int,
+    constraint pk_claim_financial_summary primary key(claim_id)
+);
+
+insert into curated.claim_financial_summary
+select 
+    c.CLAIM_ID,
+    c.PATIENT_ID,
+    c.PROVIDER_ID,
+    c.PRIMARY_PATIENT_INSURANCE_ID as primary_insurance_id,
+    c.ENCOUNTER_ID,
+    c.SERVICeDATE as service_date,
+    c.DIAGNOSIS1 as primary_diagnosis,
+    c.synthea_city,
+    sum(coalesce(case when ct.transaction_type='CHARGE' then ct.amount end,0)) as TOTAL_BILLED_AMOUNT,
+    sum(coalesce(case when ct.transaction_type='PAYMENT' then ct.payments end,0)) as TOTAL_PAID_AMOUNT,
+    sum(coalesce(ct.adjustments,0)) as TOTAL_ADJUSTMENT_AMOUNT,
+    count(distinct case when ct.transaction_type='CHARGE' THEN ct.procedure_code END) as PROCEDURE_COUNT,
+    SUM(coalesce(CASE WHEN ct.transaction_type='CHARGE' THEN ct.units END,0)) as TOTAL_SERVICE_UNITS
+from raw.claims c
+left join raw.claim_transactions ct on c.claim_id=ct.claim_id
+group by 1,2,3,4,5,6,7,8;
+
+select *
+from curated.claim_financial_summary
+limit 10;
+
+create or replace table features.claim_risk_features
+(
+    claim_id int,
+    high_claim_amount_flag string
+);
+
+desc table features.claim_risk_features;
+
+insert into features.claim_risk_features
+select 
+    claim_id,
+    case when total_billed_amount>1000 then 'Y' else 'N' end as high_claim_amount_flag,
+    case when procedure_count>3 then 'Y' else 'N' end as multiple_procedures_count
+from curated.claim_financial_summary;
+
+
+alter table features.claim_risk_features add column payment_to_billed_ratio number(10,3);
+
+update features.claim_risk_features crf
+set payment_to_billed_ratio=cs.total_paid_amount/nullif(cs.total_billed_amount,0)
+from curated.claim_financial_summary cs
+where crf.claim_id=cs.claim_id;
+
+select
+    min(payment_to_billed_ratio) as min1,
+    max(payment_to_billed_ratio) as max1,
+    avg(payment_to_billed_ratio) as avg1
+from features.claim_risk_features;
+
+alter table features.claim_risk_features add column multiple_diagnosis_flag varchar(1);
+update features.claim_risk_features cr
+set multiple_diagnosis_flag=case when c.diagnosis2 is not null or c.diagnosis3 is not null then 'Y' else 'N' end
+from raw.claims c
+where cr.claim_id=c.claim_id;
+
+select multiple_diagnosis_flag,count(*)
+from features.claim_risk_features
+group by 1;
+
+alter table features.claim_risk_features
+    add column risk_score number(3,0);
+
+update features.claim_risk_features
+set risk_score =case when high_claim_amount_flag='Y' then 50 else 0 end+
+                case when multiple_procedures_flag='Y' then 25 else 0 end+
+                case when multiple_diagnosis_flag='Y' then 25 else 0 end;
+select 
+    risk_score,
+    count(*) as claim_count
+from features.claim_risk_features
+group by risk_score
+order by risk_score asc;
+
+alter table features.claim_risk_features add column risk_category varchar(10);
+
+update features.claim_risk_features
+set risk_category = case
+                        when risk_score=0 then 'LOW'
+                        when risk_score in (25,50) then 'MEDIUM'
+                        when risk_score =75 then 'HIGH'
+                        when risk_score=100 then 'CRITICAL'
+                    END;
+
+select risk_category,count(*) as claim_count
+from features.claim_risk_features
+group by risk_category;
+
+create or replace table analytics.investigation_queue as
+select
+    cs.claim_id,
+    cs.patient_id,
+    cs.provider_id,
+    cs.service_date,
+    cs.city,
+    cs.total_billed_amount,
+    cs.procedure_count,
+    crf.risk_score,
+    crf.risk_category
+from curated.claim_financial_summary cs
+left join features.claim_risk_features crf on cs.claim_id=crf.claim_id;
+
+select count(*) from analytics.investigation_queue;
+
+create or replace table ai.claim_investigation_reason(
+    claim_id int,
+    risk_score number(3,0),
+    risk_category varchar(10),
+    risk_reason string
+);
+
+insert into ai.claim_investigation_reason
+select
+    claim_id,
+    risk_score,
+    risk_category,
+    case 
+        when high_claim_amount_flag='N' and multiple_procedures_flag='N' and multiple_diagnosis_flag='N' then 'No           Risk Indicators'
+        else
+            iff(high_claim_amount_flag='Y','High Claim Amount | ','') ||
+            iff(multiple_procedures_flag='Y','Multiple Procedures | ','') ||
+            iff(multiple_diagnosis_flag= 'Y','Multiple Diagnosis','')
+    end as risk_reason
+from features.claim_risk_features;
+
+select *
+from ai.claim_investigation_reason
+where risk_reason is null;
+
+alter table analytics.investigation_queue
+add column priority varchar(10);
+
+update analytics.investigation_queue
+set priority= case 
+                when risk_category='CRITICAL' then 'P1'
+                when risk_category='HIGH' then 'P2'
+                when risk_category='MEDIUM' then 'P3'
+                else 'P4'
+                end;
+
+select priority, count(*) as claim_count
+from analytics.investigation_queue
+group by priority
+order by priority;
+
+select current_database();
