@@ -1,0 +1,1017 @@
+import streamlit as st
+import pandas as pd
+from snowflake.snowpark.context import get_active_session
+
+
+# ---------------------------------------------------------
+# PAGE CONFIGURATION
+# ---------------------------------------------------------
+
+st.set_page_config(
+    page_title="ClaimGuard AI 360",
+    page_icon="🛡️",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+
+# ---------------------------------------------------------
+# CUSTOM CSS
+# ---------------------------------------------------------
+
+st.markdown(
+    """
+    <style>
+        /* ==============================
+           MAIN APP BACKGROUND
+        ============================== */
+        .stApp {
+            background-color: #f5f7fb;
+        }
+
+        /* ==============================
+           SIDEBAR: WHITE BACKGROUND
+        ============================== */
+        [data-testid="stSidebar"] {
+            background-color: #FFFFFF !important;
+        }
+
+        [data-testid="stSidebar"] > div:first-child {
+            background-color: #FFFFFF !important;
+        }
+
+        /* Sidebar text */
+        [data-testid="stSidebar"] p,
+        [data-testid="stSidebar"] span,
+        [data-testid="stSidebar"] label,
+        [data-testid="stSidebar"] h1,
+        [data-testid="stSidebar"] h2,
+        [data-testid="stSidebar"] h3,
+        [data-testid="stSidebar"] li,
+        [data-testid="stSidebar"] .stMarkdown {
+            color: #000000 !important;
+        }
+
+        /* Sidebar input fields */
+        [data-testid="stSidebar"] input,
+        [data-testid="stSidebar"] textarea {
+            background-color: #FFFFFF !important;
+            color: #000000 !important;
+            border: 1px solid #D1D5DB !important;
+        }
+
+        /* Sidebar dropdowns */
+        [data-testid="stSidebar"] div[data-baseweb="select"] > div {
+            background-color: #FFFFFF !important;
+            color: #000000 !important;
+            border-color: #D1D5DB !important;
+        }
+
+        /* Sidebar buttons */
+        [data-testid="stSidebar"] button {
+            color: #000000 !important;
+        }
+
+        /* ==============================
+           MAIN HEADER
+        ============================== */
+        .main-header {
+            background: linear-gradient(
+                135deg,
+                #0f4c81 0%,
+                #176b87 55%,
+                #28a0a0 100%
+            );
+            padding: 28px 32px;
+            border-radius: 18px;
+            color: #FFFFFF;
+            margin-bottom: 20px;
+            box-shadow: 0 8px 24px rgba(15, 76, 129, 0.18);
+        }
+
+        .main-header h1 {
+            margin: 0;
+            font-size: 38px;
+            font-weight: 750;
+            color: #FFFFFF !important;
+        }
+
+        .main-header p {
+            margin: 8px 0 0 0;
+            font-size: 16px;
+            color: #FFFFFF !important;
+            opacity: 0.92;
+        }
+
+        .status-badge {
+            display: inline-block;
+            margin-top: 14px;
+            padding: 6px 12px;
+            border-radius: 20px;
+            background-color: rgba(255, 255, 255, 0.18);
+            font-size: 13px;
+            font-weight: 600;
+            color: #FFFFFF !important;
+        }
+
+        /* ==============================
+           SECTION CARDS
+        ============================== */
+        .section-card {
+            background: #FFFFFF;
+            border: 1px solid #e7ebf2;
+            border-radius: 16px;
+            padding: 20px;
+            margin-bottom: 14px;
+            box-shadow: 0 3px 12px rgba(25, 45, 70, 0.06);
+        }
+
+        /* Critical risk */
+        .critical-box {
+            background: linear-gradient(135deg, #fff1f2, #ffffff);
+            border-left: 6px solid #dc2626;
+            padding: 18px;
+            border-radius: 12px;
+            margin-bottom: 12px;
+        }
+
+        /* High risk */
+        .high-box {
+            background: linear-gradient(135deg, #fff7ed, #ffffff);
+            border-left: 6px solid #f97316;
+            padding: 18px;
+            border-radius: 12px;
+            margin-bottom: 12px;
+        }
+
+        /* Medium risk */
+        .medium-box {
+            background: linear-gradient(135deg, #fffbeb, #ffffff);
+            border-left: 6px solid #eab308;
+            padding: 18px;
+            border-radius: 12px;
+            margin-bottom: 12px;
+        }
+
+        /* Low risk */
+        .low-box {
+            background: linear-gradient(135deg, #ecfdf5, #ffffff);
+            border-left: 6px solid #10b981;
+            padding: 18px;
+            border-radius: 12px;
+            margin-bottom: 12px;
+        }
+
+        /* ==============================
+           METRIC CARDS
+        ============================== */
+        div[data-testid="stMetric"] {
+            background-color: #FFFFFF !important;
+            border: 1px solid #e4eaf2;
+            padding: 18px;
+            border-radius: 15px;
+            box-shadow: 0 3px 12px rgba(25, 45, 70, 0.06);
+        }
+
+        /* Metric labels:
+           Total Claims, Billed Amount, etc. */
+        div[data-testid="stMetricLabel"],
+        div[data-testid="stMetricLabel"] p,
+        div[data-testid="stMetricLabel"] label,
+        div[data-testid="stMetricLabel"] span,
+        div[data-testid="stMetricLabel"] * {
+            color: #000000 !important;
+            opacity: 1 !important;
+            font-size: 16px !important;
+            font-weight: 700 !important;
+        }
+
+        /* Metric values:
+           Numbers and dollar amounts */
+        div[data-testid="stMetricValue"],
+        div[data-testid="stMetricValue"] * {
+            color: #000000 !important;
+            opacity: 1 !important;
+            font-weight: 750 !important;
+        }
+
+        /* ==============================
+           MAIN HEADINGS & SUBHEADERS
+        ============================== */
+        .stApp h1,
+        .stApp h2,
+        .stApp h3 {
+            color: #000000 !important;
+            opacity: 1 !important;
+        }
+
+        /* Preserve white header title */
+        .stApp .main-header h1 {
+            color: #FFFFFF !important;
+        }
+
+        /* Main page paragraph text */
+        .stApp p {
+            color: #263238;
+        }
+
+        /* ==============================
+           FOOTER
+        ============================== */
+        .footer-text {
+            text-align: center;
+            color: #000000 !important;
+            padding-top: 28px;
+            padding-bottom: 10px;
+            font-size: 13px;
+        }
+
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
+
+# ---------------------------------------------------------
+# ACTIVE SNOWFLAKE SESSION
+# ---------------------------------------------------------
+
+session = get_active_session()
+
+
+# ---------------------------------------------------------
+# DATA LOADING FUNCTION
+# ---------------------------------------------------------
+
+@st.cache_data(ttl=300)
+def load_claim_data():
+    query = """
+        SELECT
+            q.CLAIM_ID,
+            q.PATIENT_ID,
+            q.PROVIDER_ID,
+            q.SERVICE_DATE,
+            q.CITY,
+            q.TOTAL_BILLED_AMOUNT,
+            q.PROCEDURE_COUNT,
+            q.RISK_SCORE,
+            UPPER(q.RISK_CATEGORY) AS RISK_CATEGORY,
+            q.PRIORITY,
+            COALESCE(
+                r.RISK_REASON,
+                'No Risk Indicators'
+            ) AS RISK_REASON
+        FROM CLAIMGUARD_AI_360.ANALYTICS.INVESTIGATION_QUEUE q
+        LEFT JOIN CLAIMGUARD_AI_360.AI.CLAIM_INVESTIGATION_REASON r
+            ON q.CLAIM_ID = r.CLAIM_ID
+        ORDER BY
+            CASE q.PRIORITY
+                WHEN 'P1' THEN 1
+                WHEN 'P2' THEN 2
+                WHEN 'P3' THEN 3
+                ELSE 4
+            END,
+            q.RISK_SCORE DESC,
+            q.TOTAL_BILLED_AMOUNT DESC
+    """
+
+    return session.sql(query).to_pandas()
+
+
+# ---------------------------------------------------------
+# LOAD DATA SAFELY
+# ---------------------------------------------------------
+
+try:
+    claims_df = load_claim_data()
+except Exception as error:
+    st.error("Unable to load ClaimGuard AI 360 data from Snowflake.")
+    st.exception(error)
+    st.stop()
+
+
+# ---------------------------------------------------------
+# HEADER
+# ---------------------------------------------------------
+
+st.markdown(
+    """
+    <div class="main-header">
+        <h1>🛡️ ClaimGuard AI 360</h1>
+        <p>
+            Snowflake-Native Healthcare Claims Intelligence
+            and Investigation Workbench
+        </p>
+        <span class="status-badge">
+            Explainable Risk Intelligence • Human-Guided Review
+        </span>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
+
+
+# ---------------------------------------------------------
+# SIDEBAR
+# ---------------------------------------------------------
+
+with st.sidebar:
+    st.title("🛡️ ClaimGuard AI 360")
+    st.caption("Claims Investigation Controls")
+
+    st.divider()
+
+    if st.button("🔄 Refresh Data", width="stretch"):
+        st.cache_data.clear()
+        st.rerun()
+
+    st.subheader("Filters")
+
+    priority_order = ["P1", "P2", "P3", "P4"]
+
+    available_priorities = [
+        priority
+        for priority in priority_order
+        if priority in claims_df["PRIORITY"].dropna().unique()
+    ]
+
+    selected_priorities = st.multiselect(
+        "Priority",
+        options=available_priorities,
+        default=available_priorities
+    )
+
+    risk_order = ["CRITICAL", "HIGH", "MEDIUM", "LOW"]
+
+    available_categories = [
+        category
+        for category in risk_order
+        if category in claims_df["RISK_CATEGORY"].dropna().unique()
+    ]
+
+    selected_categories = st.multiselect(
+        "Risk Category",
+        options=available_categories,
+        default=available_categories
+    )
+
+    available_cities = sorted(
+        claims_df["CITY"].dropna().unique().tolist()
+    )
+
+    selected_cities = st.multiselect(
+        "City",
+        options=available_cities,
+        default=available_cities
+    )
+
+    min_amount = float(
+        claims_df["TOTAL_BILLED_AMOUNT"].min()
+    )
+
+    max_amount = float(
+        claims_df["TOTAL_BILLED_AMOUNT"].max()
+    )
+
+    if min_amount < max_amount:
+        selected_amount_range = st.slider(
+            "Billed Amount Range",
+            min_value=min_amount,
+            max_value=max_amount,
+            value=(min_amount, max_amount)
+        )
+    else:
+        selected_amount_range = (min_amount, max_amount)
+        st.caption(
+            f"Billed amount range: {min_amount:,.2f}"
+        )
+
+    st.divider()
+
+    st.caption(
+        "The risk score is an explainable prioritization aid. "
+        "Final claim decisions remain with authorized reviewers."
+    )
+
+
+# ---------------------------------------------------------
+# APPLY FILTERS
+# ---------------------------------------------------------
+
+filtered_df = claims_df.copy()
+
+if selected_priorities:
+    filtered_df = filtered_df[
+        filtered_df["PRIORITY"].isin(selected_priorities)
+    ]
+
+if selected_categories:
+    filtered_df = filtered_df[
+        filtered_df["RISK_CATEGORY"].isin(selected_categories)
+    ]
+
+if selected_cities:
+    filtered_df = filtered_df[
+        filtered_df["CITY"].isin(selected_cities)
+    ]
+
+filtered_df = filtered_df[
+    filtered_df["TOTAL_BILLED_AMOUNT"].between(
+        selected_amount_range[0],
+        selected_amount_range[1]
+    )
+]
+
+
+# ---------------------------------------------------------
+# EMPTY DATA HANDLING
+# ---------------------------------------------------------
+
+if filtered_df.empty:
+    st.warning(
+        "No claims match the selected filters. "
+        "Adjust the sidebar selections to continue."
+    )
+    st.stop()
+
+
+# ---------------------------------------------------------
+# EXECUTIVE KPI CALCULATIONS
+# ---------------------------------------------------------
+
+total_claims = filtered_df["CLAIM_ID"].nunique()
+
+critical_claims = filtered_df.loc[
+    filtered_df["RISK_CATEGORY"] == "CRITICAL",
+    "CLAIM_ID"
+].nunique()
+
+high_risk_claims = filtered_df.loc[
+    filtered_df["RISK_CATEGORY"] == "HIGH",
+    "CLAIM_ID"
+].nunique()
+
+total_billed_amount = filtered_df["TOTAL_BILLED_AMOUNT"].sum()
+
+average_claim_amount = filtered_df["TOTAL_BILLED_AMOUNT"].mean()
+
+average_risk_score = filtered_df["RISK_SCORE"].mean()
+
+critical_value = filtered_df.loc[
+    filtered_df["RISK_CATEGORY"] == "CRITICAL",
+    "TOTAL_BILLED_AMOUNT"
+].sum()
+
+
+# ---------------------------------------------------------
+# MAIN NAVIGATION
+# ---------------------------------------------------------
+
+overview_tab, queue_tab, claim_tab, provider_tab = st.tabs(
+    [
+        "📊 Executive Overview",
+        "🚨 Investigation Queue",
+        "🔎 Claim 360",
+        "🏥 Provider Intelligence"
+    ]
+)
+
+
+# =========================================================
+# EXECUTIVE OVERVIEW TAB
+# =========================================================
+
+with overview_tab:
+    st.subheader("Executive Claims Command Center")
+    st.caption(
+        "Portfolio-level risk, financial exposure, and "
+        "claims review priorities."
+    )
+
+    kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+
+    with kpi1:
+        st.metric(
+            label="Total Claims",
+            value=f"{total_claims:,}"
+        )
+
+    with kpi2:
+        st.metric(
+            label="Critical Claims",
+            value=f"{critical_claims:,}",
+            delta=f"{critical_claims / total_claims:.1%} of claims",
+            delta_color="inverse"
+        )
+
+    with kpi3:
+        st.metric(
+            label="High-Risk Claims",
+            value=f"{high_risk_claims:,}",
+            delta=f"{high_risk_claims / total_claims:.1%} of claims",
+            delta_color="inverse"
+        )
+
+    with kpi4:
+        st.metric(
+            label="Total Billed Amount",
+            value=f"${total_billed_amount:,.2f}"
+        )
+
+    kpi5, kpi6, kpi7 = st.columns(3)
+
+    with kpi5:
+        st.metric(
+            label="Average Claim Amount",
+            value=f"${average_claim_amount:,.2f}"
+        )
+
+    with kpi6:
+        st.metric(
+            label="Average Risk Score",
+            value=f"{average_risk_score:,.1f}"
+        )
+
+    with kpi7:
+        st.metric(
+            label="Critical Claim Exposure",
+            value=f"${critical_value:,.2f}"
+        )
+
+    st.divider()
+
+    chart_col1, chart_col2 = st.columns(2)
+
+    with chart_col1:
+        st.subheader("Claims by Risk Category")
+
+        risk_summary = (
+            filtered_df
+            .groupby("RISK_CATEGORY", as_index=False)
+            .agg(CLAIM_COUNT=("CLAIM_ID", "nunique"))
+        )
+
+        risk_summary["SORT_ORDER"] = (
+            risk_summary["RISK_CATEGORY"]
+            .map(
+                {
+                    "CRITICAL": 1,
+                    "HIGH": 2,
+                    "MEDIUM": 3,
+                    "LOW": 4
+                }
+            )
+        )
+
+        risk_summary = risk_summary.sort_values("SORT_ORDER")
+
+        st.bar_chart(
+            risk_summary,
+            x="RISK_CATEGORY",
+            y="CLAIM_COUNT",
+            color="RISK_CATEGORY",
+            width="stretch"
+        )
+
+    with chart_col2:
+        st.subheader("Billed Amount by Priority")
+
+        priority_summary = (
+            filtered_df
+            .groupby("PRIORITY", as_index=False)
+            .agg(
+                TOTAL_BILLED_AMOUNT=(
+                    "TOTAL_BILLED_AMOUNT",
+                    "sum"
+                )
+            )
+        )
+
+        priority_summary["SORT_ORDER"] = (
+            priority_summary["PRIORITY"]
+            .map({"P1": 1, "P2": 2, "P3": 3, "P4": 4})
+        )
+
+        priority_summary = priority_summary.sort_values(
+            "SORT_ORDER"
+        )
+
+        st.bar_chart(
+            priority_summary,
+            x="PRIORITY",
+            y="TOTAL_BILLED_AMOUNT",
+            color="PRIORITY",
+            width="stretch"
+        )
+
+    st.divider()
+
+    st.subheader("Critical Claims Requiring Immediate Review")
+
+    critical_df = filtered_df[
+        filtered_df["PRIORITY"] == "P1"
+    ].sort_values(
+        ["RISK_SCORE", "TOTAL_BILLED_AMOUNT"],
+        ascending=[False, False]
+    )
+
+    if critical_df.empty:
+        st.success(
+            "No critical claims exist for the selected filters."
+        )
+    else:
+        st.dataframe(
+            critical_df[
+                [
+                    "CLAIM_ID",
+                    "SERVICE_DATE",
+                    "CITY",
+                    "TOTAL_BILLED_AMOUNT",
+                    "PROCEDURE_COUNT",
+                    "RISK_SCORE",
+                    "RISK_REASON"
+                ]
+            ],
+            width="stretch",
+            hide_index=True,
+            column_config={
+                "CLAIM_ID": st.column_config.NumberColumn(
+                    "Claim ID",
+                    format="%d"
+                ),
+                "SERVICE_DATE": st.column_config.DatetimeColumn(
+                    "Service Date",
+                    format="DD MMM YYYY"
+                ),
+                "TOTAL_BILLED_AMOUNT":
+                    st.column_config.NumberColumn(
+                        "Billed Amount",
+                        format="$%.2f"
+                    ),
+                "RISK_SCORE": st.column_config.ProgressColumn(
+                    "Risk Score",
+                    min_value=0,
+                    max_value=100,
+                    format="%d"
+                ),
+                "RISK_REASON": st.column_config.TextColumn(
+                    "Explainable Risk Reasons",
+                    width="large"
+                )
+            }
+        )
+
+
+# =========================================================
+# INVESTIGATION QUEUE TAB
+# =========================================================
+
+with queue_tab:
+    st.subheader("Prioritized Investigation Queue")
+    st.caption(
+        "Claims are ordered by operational priority, "
+        "risk score, and financial exposure."
+    )
+
+    queue_view = filtered_df.sort_values(
+        by=[
+            "PRIORITY",
+            "RISK_SCORE",
+            "TOTAL_BILLED_AMOUNT"
+        ],
+        ascending=[True, False, False]
+    )
+
+    queue_display_columns = [
+        "PRIORITY",
+        "CLAIM_ID",
+        "PATIENT_ID",
+        "PROVIDER_ID",
+        "SERVICE_DATE",
+        "CITY",
+        "TOTAL_BILLED_AMOUNT",
+        "PROCEDURE_COUNT",
+        "RISK_SCORE",
+        "RISK_CATEGORY",
+        "RISK_REASON"
+    ]
+
+    st.dataframe(
+        queue_view[queue_display_columns],
+        width="stretch",
+        hide_index=True,
+        column_config={
+            "PRIORITY": st.column_config.TextColumn(
+                "Priority",
+                width="small"
+            ),
+            "CLAIM_ID": st.column_config.NumberColumn(
+                "Claim ID",
+                format="%d"
+            ),
+            "PATIENT_ID": st.column_config.NumberColumn(
+                "Patient ID",
+                format="%d"
+            ),
+            "PROVIDER_ID": st.column_config.NumberColumn(
+                "Provider ID",
+                format="%d"
+            ),
+            "SERVICE_DATE": st.column_config.DatetimeColumn(
+                "Service Date",
+                format="DD MMM YYYY"
+            ),
+            "TOTAL_BILLED_AMOUNT":
+                st.column_config.NumberColumn(
+                    "Billed Amount",
+                    format="$%.2f"
+                ),
+            "RISK_SCORE": st.column_config.ProgressColumn(
+                "Risk Score",
+                min_value=0,
+                max_value=100,
+                format="%d"
+            ),
+            "RISK_REASON": st.column_config.TextColumn(
+                "Risk Reasons",
+                width="large"
+            )
+        }
+    )
+
+    csv_data = queue_view[
+        queue_display_columns
+    ].to_csv(index=False).encode("utf-8")
+
+    st.download_button(
+        label="⬇️ Download Investigation Queue",
+        data=csv_data,
+        file_name="claimguard_investigation_queue.csv",
+        mime="text/csv"
+    )
+
+
+# =========================================================
+# CLAIM 360 TAB
+# =========================================================
+
+with claim_tab:
+    st.subheader("Claim 360 Review")
+    st.caption(
+        "Select a claim to review its financial, clinical, "
+        "and explainable risk information."
+    )
+
+    claim_options = filtered_df.sort_values(
+        ["PRIORITY", "RISK_SCORE"],
+        ascending=[True, False]
+    )["CLAIM_ID"].drop_duplicates().tolist()
+
+    selected_claim_id = st.selectbox(
+        "Select Claim ID",
+        options=claim_options
+    )
+
+    selected_claim = filtered_df[
+        filtered_df["CLAIM_ID"] == selected_claim_id
+    ].iloc[0]
+
+    risk_category = selected_claim["RISK_CATEGORY"]
+
+    if risk_category == "CRITICAL":
+        box_class = "critical-box"
+    elif risk_category == "HIGH":
+        box_class = "high-box"
+    elif risk_category == "MEDIUM":
+        box_class = "medium-box"
+    else:
+        box_class = "low-box"
+
+    st.markdown(
+        f"""
+        <div class="{box_class}">
+            <h3 style="margin-top: 0;">
+                Claim {int(selected_claim['CLAIM_ID'])}
+            </h3>
+            <b>Priority:</b> {selected_claim['PRIORITY']}<br>
+            <b>Risk Category:</b> {risk_category}<br>
+            <b>Risk Score:</b> {int(selected_claim['RISK_SCORE'])}/100<br>
+            <b>Explainable Reason:</b>
+            {selected_claim['RISK_REASON']}
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    detail1, detail2, detail3, detail4 = st.columns(4)
+
+    with detail1:
+        st.metric(
+            "Billed Amount",
+            f"${selected_claim['TOTAL_BILLED_AMOUNT']:,.2f}"
+        )
+
+    with detail2:
+        st.metric(
+            "Procedure Count",
+            f"{int(selected_claim['PROCEDURE_COUNT']):,}"
+        )
+
+    with detail3:
+        st.metric(
+            "Patient ID",
+            f"{int(selected_claim['PATIENT_ID'])}"
+        )
+
+    with detail4:
+        st.metric(
+            "Provider ID",
+            f"{int(selected_claim['PROVIDER_ID'])}"
+        )
+
+    st.divider()
+
+    info_col1, info_col2 = st.columns(2)
+
+    with info_col1:
+        st.markdown("#### Claim Information")
+        st.write(
+            {
+                "Claim ID": int(selected_claim["CLAIM_ID"]),
+                "Patient ID": int(selected_claim["PATIENT_ID"]),
+                "Provider ID": int(selected_claim["PROVIDER_ID"]),
+                "City": selected_claim["CITY"],
+                "Service Date": str(
+                    selected_claim["SERVICE_DATE"]
+                )
+            }
+        )
+
+    with info_col2:
+        st.markdown("#### Investigation Guidance")
+
+        if risk_category == "CRITICAL":
+            st.error(
+                "Immediate investigator review recommended. "
+                "Multiple claim-risk indicators are present."
+            )
+        elif risk_category == "HIGH":
+            st.warning(
+                "Prioritized investigation recommended before "
+                "further claim processing."
+            )
+        elif risk_category == "MEDIUM":
+            st.info(
+                "Review when higher-priority claims have been "
+                "addressed."
+            )
+        else:
+            st.success(
+                "No material indicators were found by the current "
+                "rules engine."
+            )
+
+        st.caption(
+            "This guidance supports triage only. It does not approve, "
+            "deny, or determine claim validity."
+        )
+
+
+# =========================================================
+# PROVIDER INTELLIGENCE TAB
+# =========================================================
+
+with provider_tab:
+    st.subheader("Provider Risk Intelligence")
+    st.caption(
+        "Provider-level claim volumes, financial exposure, "
+        "and risk concentration."
+    )
+
+    provider_summary = (
+        filtered_df
+        .groupby("PROVIDER_ID", as_index=False)
+        .agg(
+            TOTAL_CLAIMS=("CLAIM_ID", "nunique"),
+            TOTAL_BILLED_AMOUNT=(
+                "TOTAL_BILLED_AMOUNT",
+                "sum"
+            ),
+            AVG_RISK_SCORE=("RISK_SCORE", "mean"),
+            CRITICAL_CLAIMS=(
+                "RISK_CATEGORY",
+                lambda values: (values == "CRITICAL").sum()
+            ),
+            HIGH_RISK_CLAIMS=(
+                "RISK_CATEGORY",
+                lambda values: (values == "HIGH").sum()
+            )
+        )
+    )
+
+    provider_summary["HIGH_PRIORITY_CLAIMS"] = (
+        provider_summary["CRITICAL_CLAIMS"]
+        + provider_summary["HIGH_RISK_CLAIMS"]
+    )
+
+    provider_summary = provider_summary.sort_values(
+        [
+            "HIGH_PRIORITY_CLAIMS",
+            "TOTAL_BILLED_AMOUNT"
+        ],
+        ascending=[False, False]
+    )
+
+    provider_col1, provider_col2 = st.columns(2)
+
+    with provider_col1:
+        st.subheader("Top Providers by Billed Amount")
+
+        top_provider_amount = provider_summary.nlargest(
+            10,
+            "TOTAL_BILLED_AMOUNT"
+        )
+
+        st.bar_chart(
+            top_provider_amount,
+            x="PROVIDER_ID",
+            y="TOTAL_BILLED_AMOUNT",
+            width="stretch"
+        )
+
+    with provider_col2:
+        st.subheader("Top Providers by Risk Exposure")
+
+        top_provider_risk = provider_summary.nlargest(
+            10,
+            "HIGH_PRIORITY_CLAIMS"
+        )
+
+        st.bar_chart(
+            top_provider_risk,
+            x="PROVIDER_ID",
+            y="HIGH_PRIORITY_CLAIMS",
+            width="stretch"
+        )
+
+    st.divider()
+
+    st.subheader("Provider Risk Leaderboard")
+
+    st.dataframe(
+        provider_summary,
+        width="stretch",
+        hide_index=True,
+        column_config={
+            "PROVIDER_ID": st.column_config.NumberColumn(
+                "Provider ID",
+                format="%d"
+            ),
+            "TOTAL_CLAIMS": st.column_config.NumberColumn(
+                "Total Claims",
+                format="%d"
+            ),
+            "TOTAL_BILLED_AMOUNT":
+                st.column_config.NumberColumn(
+                    "Billed Amount",
+                    format="$%.2f"
+                ),
+            "AVG_RISK_SCORE":
+                st.column_config.NumberColumn(
+                    "Average Risk Score",
+                    format="%.1f"
+                ),
+            "CRITICAL_CLAIMS":
+                st.column_config.NumberColumn(
+                    "Critical Claims",
+                    format="%d"
+                ),
+            "HIGH_RISK_CLAIMS":
+                st.column_config.NumberColumn(
+                    "High-Risk Claims",
+                    format="%d"
+                ),
+            "HIGH_PRIORITY_CLAIMS":
+                st.column_config.NumberColumn(
+                    "Total High-Priority Claims",
+                    format="%d"
+                )
+        }
+    )
+
+
+# ---------------------------------------------------------
+# FOOTER
+# ---------------------------------------------------------
+
+st.markdown(
+    """
+    <div class="footer-text">
+        ClaimGuard AI 360 • Snowflake-Native Claims Intelligence POC
+        <br>
+        Built using synthetic healthcare claims data.
+        Final claim decisions remain human-controlled.
+    </div>
+    """,
+    unsafe_allow_html=True
+)
