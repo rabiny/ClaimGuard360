@@ -45,3 +45,7 @@ Potential fraud pattern identification.
 Advanced claims performance metrics.
 Predictive analytics and risk scoring.
 Built with Snowflake and Streamlit in Snowflake.
+
+Outputs:
+<img width="1771" height="853" alt="image" src="https://github.com/user-attachments/assets/31a9931d-2eb3-4250-aba7-5be27717a79f" />
+
